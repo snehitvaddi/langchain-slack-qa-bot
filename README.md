@@ -14,7 +14,7 @@ A Slack chatbot that answers questions about a fictional startup (Northstar Sign
 ### 1. Clone and install
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/snehitvaddi/langchain-slack-qa-bot
 cd langchain-slack-qa-bot
 python3.12 -m venv .venv
 source .venv/bin/activate
