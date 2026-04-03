@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.pyc
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+.venv/
+venv/
+dist/
+*.egg-info/
+.firecrawl/
+docs/
+.pytest_cache/
+.claude/

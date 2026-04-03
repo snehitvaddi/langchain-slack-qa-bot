@@ -1,0 +1,23 @@
+[project]
+name = "langchain-slack-qa-bot"
+version = "0.1.0"
+description = "Slack Q&A chatbot powered by LangGraph over a SQLite database"
+requires-python = ">=3.12"
+dependencies = [
+    "langchain>=1.0",
+    "langchain-openai>=1.0",
+    "langgraph>=1.0",
+    "slack-bolt>=1.20",
+    "python-dotenv>=1.0",
+    "langsmith>=0.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
