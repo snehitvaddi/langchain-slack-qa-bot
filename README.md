@@ -176,12 +176,50 @@ python -m eval.stress_test
 
 ## Architecture
 
+```
+┌──────────┐     WebSocket      ┌──────────────────────────────────────────┐
+│          │    (Socket Mode)   │          Python Application              │
+│  Slack   │◄──────────────────►│                                          │
+│  Users   │                    │  ┌────────────┐    ┌──────────────────┐  │
+│          │  @bot question     │  │ Slack Bolt  │───►│  LangGraph Agent │  │
+│  #channel│  eyes → thinking   │  │  Handler    │    │  (create_agent)  │  │
+│  threads │  → final answer    │  └────────────┘    │                  │  │
+│  DMs     │                    │                     │  ReAct Loop:     │  │
+└──────────┘                    │                     │  LLM → tool →   │  │
+                                │                     │  observe → LLM  │  │
+                                │                     │  → ... → answer  │  │
+                                │                     └───────┬──────────┘  │
+                                │                             │             │
+                                │                     ┌───────▼──────────┐  │
+                                │                     │   Agent Tools    │  │
+                                │                     │                  │  │
+                                │                     │  • fts_search    │  │
+                                │                     │  • run_query     │  │
+                                │                     │  • get_schema    │  │
+                                │                     │  • list_tables   │  │
+                                │                     └───────┬──────────┘  │
+                                │                             │             │
+                                │  ┌─────────────┐   ┌───────▼──────────┐  │
+                                │  │MemorySaver  │   │  SQLite (RO)     │  │
+                                │  │+ Rolling    │   │  synthetic_      │  │
+                                │  │  Summaries  │   │  startup.sqlite  │  │
+                                │  └─────────────┘   └──────────────────┘  │
+                                └──────────────────────────────────────────┘
+                                          │                    │
+                                          ▼                    ▼
+                                   ┌────────────┐      ┌────────────┐
+                                   │  OpenAI    │      │ LangSmith  │
+                                   │  GPT-4o    │      │  Tracing   │
+                                   └────────────┘      └────────────┘
+```
+
 See [DESIGN.md](DESIGN.md) for detailed architecture decisions and tradeoffs.
+See [slack-qa-bot-architecture.drawio](slack-qa-bot-architecture.drawio) for the full diagram (open at [app.diagrams.net](https://app.diagrams.net)).
 
 **Key components:**
 - **Agent**: `create_agent` from `langchain.agents` (langchain 1.x) with ReAct loop
 - **Tools**: `list_tables`, `get_schema`, `run_query`, `fts_search` (parameterized queries)
-- **Memory**: Thread-based checkpointing via `MemorySaver`, conversation summarization for long threads
+- **Memory**: Thread-based checkpointing via `MemorySaver`, rolling conversation summarization
 - **Slack**: Slack Bolt + Socket Mode with post-then-update UX, auto-splits long messages
 - **Security**: Read-only SQLite (`mode=ro`), SQL validation, parameterized queries, prompt guardrails
 - **Observability**: LangSmith tracing + terminal execution traces
