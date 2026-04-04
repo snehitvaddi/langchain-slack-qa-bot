@@ -1,9 +1,95 @@
 # LangChain Slack Q&A Bot
 
-A Slack chatbot that answers questions about a fictional startup (Northstar Signal) by querying a SQLite database. Built with LangGraph, LangChain, and Slack Bolt.
+A Slack chatbot that answers natural language questions about a fictional startup (Northstar Signal) by querying a SQLite database. Built with LangGraph, LangChain, and Slack Bolt.
 
 
-## Quick Start
+## Architecture
+
+![Architecture Diagram](assets/architecture.png)
+
+- **Agent**: `create_agent` from `langchain.agents` (langchain 1.x) with ReAct loop — LLM decides which tool to call, observes the result, decides again until it has enough to answer
+- **Tools**: `fts_search` (FTS5 full-text search), `run_query` (parameterized SQL), `get_schema`, `list_tables`
+- **Memory**: Thread-based checkpointing via `MemorySaver` + rolling conversation summarization for long threads
+- **Slack**: Slack Bolt + Socket Mode, post-then-update UX pattern, automatic message splitting for long answers
+- **Security**: Read-only SQLite (`mode=ro`), SQL statement validation, parameterized queries, prompt-level guardrails
+- **Observability**: LangSmith tracing + terminal execution traces for every tool call
+
+See [DESIGN.md](DESIGN.md) for detailed architecture decisions and tradeoffs.
+
+## Key Results
+
+### Agent Performance
+
+| Query | Difficulty | Accuracy | Tool Calls | Latency |
+|-------|-----------|----------|------------|---------|
+| Taxonomy rollout customer + proof plan | Easy | 80% | 3 | 7.7s |
+| Verdant Bay patch window + rollback | Easy | 80% | 3 | 5.3s |
+| MapleHarvest field mappings + workshop | Easy | 67% | 3 | 4.8s |
+| Aureum SCIM fields + Jin's fix | Easy | 60% | 2 | 7.6s |
+| Competitor defection risk + milestone | Hard | 20% | 3 | 4.5s |
+| Canada approval-bypass pattern | Hard | 75% | 3 | 6.9s |
+
+**Overall: 64% accuracy, 2.8 avg tool calls, 6.1s avg latency**
+
+### Prompt Tuning Impact
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| Overall accuracy | 49% | 64% | +15pp |
+| FTS usage rate | 83% | 100% | +17pp |
+| Avg tool calls | 3.0 | 2.8 | -0.2 |
+| Aureum SCIM (was failing) | 0% | 60% | Fixed |
+
+### Multi-Turn Context
+
+94% accuracy across 6-message threads testing pronoun resolution ("What's *their* competitor risk?"), topic switching, and back-references ("Go back to BlueHarbor").
+
+### Memory Strategy Comparison (40-message stress test)
+
+| Strategy | Tokens | Back-Ref Accuracy | Errors |
+|----------|--------|-------------------|--------|
+| Full history | 414K | 88% | 0 |
+| Summarize (rolling) | 475K | 87% | 0 |
+| Trim (drop old) | 554K | 78% | 0 |
+
+The summarize strategy initially had 28 errors due to an orphaned tool message bug — after fixing tool boundary detection, it dropped to 0 errors with 87% accuracy.
+
+### Security
+
+27/27 tests passing — 14 security tests (SQL injection prevention, DML blocking, read-only enforcement) + 13 tool tests.
+
+Full experiment data: [`eval/EXPERIMENTS.md`](eval/EXPERIMENTS.md) | Raw results: [`eval/results.json`](eval/results.json)
+
+## Design Decisions
+
+**Why `create_agent` over raw `StateGraph`** — It's LangChain's current recommended API (langchain 1.x). Gives us the ReAct loop, middleware support, and checkpointing without wiring up the graph manually. Still uses LangGraph under the hood.
+
+**Why FTS as a dedicated tool** — The database has an FTS5 index on artifact content. Making this a separate `fts_search` tool (instead of hoping the LLM writes correct FTS5 MATCH syntax in raw SQL) gives better results and uses parameterized queries for security.
+
+**Why rolling summaries** — At 15+ messages, we compress older conversation into a summary and keep recent messages raw. Each new summary builds on the previous one (not re-summarizing from scratch). Discovered and fixed an orphaned tool message bug through stress testing.
+
+**Why post-then-update Slack UX** — Slack requires HTTP 200 within 3 seconds, but LLM calls take 5-30s. We immediately post "Thinking..." then replace it with the answer. Eyes emoji on receipt, checkmark on completion.
+
+See [DESIGN.md](DESIGN.md) for the full write-up.
+
+## Running Evaluation
+
+```bash
+# Unit tests (27/27 should pass)
+PYTHONPATH=. pytest tests/ -v
+
+# Test against 6 assessment example queries
+python -m eval.evaluate
+
+# Full experiment suite (accuracy, multi-turn, memory, efficiency)
+python -m eval.experiments
+
+# 40-message stress test across memory strategies
+python -m eval.stress_test
+```
+
+<details>
+<summary><h2>Setup & Installation</h2></summary>
 
 ### Prerequisites
 
@@ -76,8 +162,6 @@ cp /tmp/take-home-db/synthetic_startup.sqlite .
 
 ### 4. Get your tokens
 
-You need two tokens:
-
 **Bot Token (`xoxb-...`):**
 1. In your app settings, go to **Install App** (left sidebar)
 2. Click **Install to Workspace** > **Allow**
@@ -92,7 +176,7 @@ You need two tokens:
 6. Click **Generate**
 7. Copy the token (starts with `xapp-`)
 
-### 5. Enable DMs (optional but recommended)
+### 5. Enable DMs (optional)
 
 To message the bot directly (not just @mentions in channels):
 1. Go to **App Home** (left sidebar, under Features)
@@ -130,66 +214,14 @@ You should see: `Starting Slack bot in Socket Mode...`
 
 ### 8. Use it in Slack
 
-**In a channel:**
-1. Open any channel > click channel name > **Integrations** > **Add apps** > add **QA Bot**
-2. Type: `@QA Bot which customer's issue started after the 2026-02-20 taxonomy rollout?`
+**In a channel:** Open any channel > Integrations > Add apps > add **QA Bot** > type `@QA Bot your question`
 
-**In DMs:**
-1. Find **QA Bot** under Apps in the left sidebar
-2. Type directly (no @mention needed): `which customer's issue started after the 2026-02-20 taxonomy rollout?`
+**In DMs:** Find QA Bot under Apps in sidebar > type directly (no @mention needed)
 
-The bot will:
-1. React with eyes emoji (instant feedback)
-2. Post "Thinking..." in a thread
-3. Query the database using FTS and SQL
-4. Replace the placeholder with the answer
-5. Swap eyes for a checkmark
+</details>
 
-Follow up in the same thread for multi-turn conversations — the bot retains context.
-
-## Running Tests
-
-```bash
-PYTHONPATH=. pytest tests/ -v
-```
-
-All 27 tests should pass (14 security + 13 tool tests).
-
-## Running Evaluation
-
-Tests the agent against the 6 example queries from the assessment:
-
-```bash
-python -m eval.evaluate
-```
-
-Run the full experiment suite (baseline accuracy, multi-turn, memory strategies, tool efficiency):
-
-```bash
-python -m eval.experiments
-```
-
-Run the 40-message stress test comparing memory strategies:
-
-```bash
-python -m eval.stress_test
-```
-
-## Architecture
-
-![Architecture Diagram](assets/architecture.png)
-
-See [DESIGN.md](DESIGN.md) for detailed architecture decisions and tradeoffs.
-
-**Key components:**
-- **Agent**: `create_agent` from `langchain.agents` (langchain 1.x) with ReAct loop
-- **Tools**: `list_tables`, `get_schema`, `run_query`, `fts_search` (parameterized queries)
-- **Memory**: Thread-based checkpointing via `MemorySaver`, rolling conversation summarization
-- **Slack**: Slack Bolt + Socket Mode with post-then-update UX, auto-splits long messages
-- **Security**: Read-only SQLite (`mode=ro`), SQL validation, parameterized queries, prompt guardrails
-- **Observability**: LangSmith tracing + terminal execution traces
-
-## Troubleshooting
+<details>
+<summary><h2>Troubleshooting</h2></summary>
 
 **"We can't translate a manifest with errors"** — Use the JSON format (not YAML). The JSON manifest above includes the required `_metadata` field.
 
@@ -200,3 +232,5 @@ See [DESIGN.md](DESIGN.md) for detailed architecture decisions and tradeoffs.
 **"msg_too_long" error** — Fixed in the current version. Long answers are automatically split into multiple Slack messages.
 
 **Markdown rendering issues** — Slack uses its own "mrkdwn" format, not standard Markdown. The bot auto-converts `**bold**` to `*bold*` and converts tables to bullet points.
+
+</details>
