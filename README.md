@@ -2,6 +2,8 @@
 
 A Slack chatbot that answers questions about a fictional startup (Northstar Signal) by querying a SQLite database. Built with LangGraph, LangChain, and Slack Bolt.
 
+![Slack Demo](assets/slack-demo.png)
+
 ## Quick Start
 
 ### Prerequisites
@@ -214,7 +216,8 @@ python -m eval.stress_test
 ```
 
 See [DESIGN.md](DESIGN.md) for detailed architecture decisions and tradeoffs.
-See [slack-qa-bot-architecture.drawio](slack-qa-bot-architecture.drawio) for the full diagram (open at [app.diagrams.net](https://app.diagrams.net)).
+
+> Open [slack-qa-bot-architecture.drawio](slack-qa-bot-architecture.drawio) at [app.diagrams.net](https://app.diagrams.net) for the full detailed diagram with color-coded layers.
 
 **Key components:**
 - **Agent**: `create_agent` from `langchain.agents` (langchain 1.x) with ReAct loop
