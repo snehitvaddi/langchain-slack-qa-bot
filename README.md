@@ -2,7 +2,6 @@
 
 A Slack chatbot that answers questions about a fictional startup (Northstar Signal) by querying a SQLite database. Built with LangGraph, LangChain, and Slack Bolt.
 
-![Slack Demo](assets/slack-demo.png)
 
 ## Quick Start
 
