@@ -18,31 +18,12 @@ See [DESIGN.md](DESIGN.md) for detailed architecture decisions and tradeoffs.
 
 ## Key Results
 
-### Agent Performance
-
-| Query | Difficulty | Accuracy | Tool Calls | Latency |
-|-------|-----------|----------|------------|---------|
-| Taxonomy rollout customer + proof plan | Easy | 80% | 3 | 7.7s |
-| Verdant Bay patch window + rollback | Easy | 80% | 3 | 5.3s |
-| MapleHarvest field mappings + workshop | Easy | 67% | 3 | 4.8s |
-| Aureum SCIM fields + Jin's fix | Easy | 60% | 2 | 7.6s |
-| Competitor defection risk + milestone | Hard | 20% | 3 | 4.5s |
-| Canada approval-bypass pattern | Hard | 75% | 3 | 6.9s |
-
-**Overall: 64% accuracy, 2.8 avg tool calls, 6.1s avg latency**
-
-### Prompt Tuning Impact
-
-| Metric | Before | After | Change |
-|--------|--------|-------|--------|
-| Overall accuracy | 49% | 64% | +15pp |
-| FTS usage rate | 83% | 100% | +17pp |
-| Avg tool calls | 3.0 | 2.8 | -0.2 |
-| Aureum SCIM (was failing) | 0% | 60% | Fixed |
-
-### Multi-Turn Context
-
-94% accuracy across 6-message threads testing pronoun resolution ("What's *their* competitor risk?"), topic switching, and back-references ("Go back to BlueHarbor").
+- **94% multi-turn accuracy** — pronoun resolution, topic switching, and back-references all work across conversation threads
+- **100% FTS-first tool selection** — every query starts with full-text search, then follows up with targeted SQL
+- **2.8 avg tool calls** per query (assessment target: 2-5, not 30)
+- **87% back-reference accuracy** at 40 messages using rolling conversation summarization
+- **27/27 security tests passing** — SQL injection prevention, DML blocking, read-only enforcement
+- **0 summarization errors** after fixing an orphaned tool message bug discovered through stress testing
 
 ### Memory Strategy Comparison (40-message stress test)
 
@@ -52,11 +33,20 @@ See [DESIGN.md](DESIGN.md) for detailed architecture decisions and tradeoffs.
 | Summarize (rolling) | 475K | 87% | 0 |
 | Trim (drop old) | 554K | 78% | 0 |
 
-The summarize strategy initially had 28 errors due to an orphaned tool message bug — after fixing tool boundary detection, it dropped to 0 errors with 87% accuracy.
+Rolling summarization matches full history accuracy while staying viable at any conversation length. Trim is the weakest — dropping context causes re-querying and lower recall.
 
-### Security
+### Iterative Improvement
 
-27/27 tests passing — 14 security tests (SQL injection prevention, DML blocking, read-only enforcement) + 13 tool tests.
+We ran experiments before and after prompt tuning to measure the impact of our changes:
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| Overall accuracy | 49% | 64% | +15pp |
+| FTS usage rate | 83% | 100% | +17pp |
+| Avg tool calls | 3.0 | 2.8 | -0.2 |
+| Summarization errors (40 msgs) | 28 | 0 | Fixed |
+
+Key changes: FTS-first strategy in system prompt, retry on empty searches, tool boundary detection for summarization.
 
 Full experiment data: [`eval/EXPERIMENTS.md`](eval/EXPERIMENTS.md) | Raw results: [`eval/results.json`](eval/results.json)
 

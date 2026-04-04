@@ -145,33 +145,89 @@ MULTI_TURN_TEST = [
 ]
 
 STRESS_TEST_MESSAGES = [
+    # --- Batch 1: BlueHarbor deep dive (0-9) ---
     "Tell me everything about BlueHarbor Logistics.",
     "What specific issue are they facing with search relevance?",
-    "When did the taxonomy rollout happen?",
-    "What's the proof-of-fix plan?",
-    "Who is the competitor risk?",
-    "What's the contract value?",
-    "Now tell me about MapleBridge Insurance.",
+    "When did the taxonomy rollout happen that caused this?",
+    "What's the proof-of-fix plan? Give me the full details.",
+    "Who is the competitor risk — NoiseGuard? What's their positioning?",
+    "What's BlueHarbor's contract value and deployment model?",
+    "What does the support ticket say about this issue?",
+    "What's in the internal Slack thread about BlueHarbor?",
+    "Who from Northstar is handling this account?",
+    "What are the success metrics for BlueHarbor's implementation?",
+
+    # --- Batch 2: MapleBridge + Canada pattern (10-17) ---
+    "Now switch to MapleBridge Insurance. What's happening there?",
     "What approval bypass issues are they having?",
-    "Is this a Canada-wide pattern?",
-    "Tell me about Verdant Bay.",
-    "What's the emergency playbook?",
-    "What's the live patch window?",
-    "Tell me about Aureum and SCIM.",
-    "What did Jin propose as a fix?",
-    "How many at-risk customers total?",
-    # Back-references after 15 messages
-    "Going back to the very first customer — what was their contract value?",
-    "What was the Canada approval bypass root cause?",
-    "Compare BlueHarbor and Verdant Bay — which is more urgent?",
-    "Summarize everything we discussed.",
+    "Is this pattern unique to MapleBridge or is it Canada-wide?",
+    "Which other Canadian customers have similar approval issues?",
+    "What's the root cause — stale caches, field aliases, or something else?",
+    "What internal Slack thread exists about the MapleBridge fix?",
+    "What's MapleBridge's contract value?",
+    "What competitor is MapleBridge considering?",
+
+    # --- Batch 3: Verdant Bay deep dive (18-24) ---
+    "Tell me about City of Verdant Bay and their situation.",
+    "What's the emergency playbook for their approval issue?",
+    "What's the approved live patch window?",
+    "How do we roll back if validation checks fail?",
+    "What competitor is being considered as alternative for Verdant Bay?",
+    "What's their account health and CRM stage?",
+    "What's the scope summary for Verdant Bay's implementation?",
+
+    # --- Batch 4: Aureum + SCIM (25-31) ---
+    "Tell me about Aureum and the SCIM field conflicts.",
+    "What specific SCIM fields were conflicting?",
+    "What fast fix did Jin propose?",
+    "What's Aureum's deployment model and contract value?",
+    "What does the competitor research say about Aureum's alternatives?",
+    "What's in the internal document about the Aureum fix plan?",
+    "What's Aureum's account health status?",
+
+    # --- Batch 5: MapleHarvest Quebec (32-37) ---
+    "Now tell me about MapleHarvest Grocers in Quebec.",
+    "What temporary field mappings are planned in the router transform?",
+    "What is the March 23 workshop supposed to produce?",
+    "What's MapleHarvest's industry and region?",
+    "What product are they using?",
+    "What's their implementation status?",
+
+    # --- Batch 6: Cross-cutting questions (38-42) ---
+    "How many at-risk customers do we have in total?",
+    "Which region has the most at-risk accounts?",
+    "What are the top 3 highest-value contracts among at-risk customers?",
+    "Which competitors appear most frequently across our accounts?",
+    "What industries have the most implementation issues?",
+
+    # --- Batch 7: BACK-REFERENCE GAUNTLET (43-54) ---
+    "Going back to the very first customer we discussed — what was their name and contract value?",
+    "What was the specific search relevance issue that first customer had?",
+    "The insurance company with approval issues — what was the root cause again?",
+    "What was the exact rollback command for Verdant Bay we discussed earlier?",
+    "What was Jin's proposed fix for the SCIM issue at Aureum?",
+    "What field mappings did we discuss for the Quebec pilot?",
+    "Compare BlueHarbor and MapleBridge — which situation is more urgent and why?",
+    "Of all the competitors mentioned in our entire conversation, which is the biggest threat?",
+    "How many Canadian customers with approval bypass issues did we identify?",
+    "What were the three different fix plans we discussed across BlueHarbor, Verdant Bay, and Aureum?",
+    "Summarize the top 3 most critical customer situations from everything we've discussed.",
+    "Give me a final executive summary of every customer we covered, their issue, and current status.",
 ]
 
 STRESS_CHECKS = {
-    15: {"expected": ["BlueHarbor", "780"], "test": "Back-ref to msg 1"},
-    16: {"expected": ["MapleBridge", "approval"], "test": "Back-ref to msg 7"},
-    17: {"expected": ["BlueHarbor", "Verdant Bay"], "test": "Cross-reference"},
-    18: {"expected": ["BlueHarbor", "MapleBridge", "Verdant Bay"], "test": "Full recall"},
+    43: {"expected": ["BlueHarbor", "780"], "test": "Back-ref to msg 1 (43 msgs ago)"},
+    44: {"expected": ["taxonomy", "search", "relevance"], "test": "Back-ref to msg 2 details"},
+    45: {"expected": ["MapleBridge", "approval"], "test": "Back-ref to msg 11 (34 msgs ago)"},
+    46: {"expected": ["orchestrator rollback", "ruleset"], "test": "Recall Verdant Bay rollback from msg 21"},
+    47: {"expected": ["hot-reloadable", "preprocessing"], "test": "Recall Jin's fix from msg 27"},
+    48: {"expected": ["txn_id", "transaction_id"], "test": "Recall MapleHarvest mappings from msg 33"},
+    49: {"expected": ["BlueHarbor", "MapleBridge"], "test": "Cross-ref two customers from msgs 1-17"},
+    50: {"expected": ["NoiseGuard"], "test": "Recall competitor from msg 5 (45 msgs ago)"},
+    51: {"expected": ["Canada", "approval"], "test": "Recall Canada pattern from msgs 12-13"},
+    52: {"expected": ["BlueHarbor", "Verdant Bay", "Aureum"], "test": "Recall 3 fix plans"},
+    53: {"expected": ["BlueHarbor", "MapleBridge", "Verdant Bay"], "test": "Recall top 3 critical"},
+    54: {"expected": ["BlueHarbor", "MapleBridge", "Verdant Bay", "Aureum", "MapleHarvest"], "test": "Recall ALL 5 customers"},
 }
 
 
