@@ -1,6 +1,53 @@
+import time
+
 from langchain.tools import tool
 
 from src.db import execute_raw, get_table_names, get_table_schema, validate_sql, get_connection
+
+
+# --- FTS result cache (process-global, TTL-based) ---
+# Same customer/topic is often searched multiple times within a conversation.
+# Cache hits save ~50-150ms per repeat call (FTS index scan + row fetches).
+_FTS_CACHE: dict[tuple[str, int], tuple[float, str]] = {}
+_FTS_TTL_SEC = 600  # 10 minutes
+_FTS_MAX_SIZE = 500
+
+# Counters for observability (read by slack_handler for per-request log line)
+_CACHE_STATS = {"hits": 0, "misses": 0}
+
+
+def _cache_get(query: str, limit: int) -> str | None:
+    """Return cached FTS result or None. Evicts expired entries on access."""
+    key = (query.strip().lower(), limit)
+    entry = _FTS_CACHE.get(key)
+    if entry is None:
+        _CACHE_STATS["misses"] += 1
+        return None
+    expires_at, value = entry
+    if time.time() > expires_at:
+        _FTS_CACHE.pop(key, None)
+        _CACHE_STATS["misses"] += 1
+        return None
+    _CACHE_STATS["hits"] += 1
+    return value
+
+
+def _cache_put(query: str, limit: int, value: str) -> None:
+    """Store FTS result with TTL. Evicts oldest if over max size."""
+    if len(_FTS_CACHE) >= _FTS_MAX_SIZE:
+        # Evict oldest entry (first insertion — dicts preserve insertion order)
+        oldest_key = next(iter(_FTS_CACHE))
+        _FTS_CACHE.pop(oldest_key, None)
+    key = (query.strip().lower(), limit)
+    _FTS_CACHE[key] = (time.time() + _FTS_TTL_SEC, value)
+
+
+def get_cache_stats() -> dict:
+    """Return and reset cache hit/miss counters. Used by per-request logger."""
+    stats = dict(_CACHE_STATS)
+    _CACHE_STATS["hits"] = 0
+    _CACHE_STATS["misses"] = 0
+    return stats
 
 
 @tool
@@ -68,6 +115,11 @@ def fts_search(query: str, limit: int = 10) -> str:
         query: Search terms (e.g. "taxonomy rollout", "BlueHarbor", "approval bypass Canada")
         limit: Maximum results to return (default 10)
     """
+    # Check cache first — same search in same conversation is common
+    cached = _cache_get(query, limit)
+    if cached is not None:
+        return cached
+
     conn = get_connection()
     try:
         cursor = conn.execute(
@@ -85,7 +137,9 @@ def fts_search(query: str, limit: int = 10) -> str:
         rows = cursor.fetchall()
 
         if not rows:
-            return f"No artifacts found matching '{query}'."
+            result = f"No artifacts found matching '{query}'."
+            _cache_put(query, limit, result)
+            return result
 
         lines = [f"Found {len(rows)} artifact(s) matching '{query}':\n"]
         for row in rows:
@@ -94,7 +148,9 @@ def fts_search(query: str, limit: int = 10) -> str:
                 f"- [{d['artifact_type']}] {d['title']} (artifact_id={d['artifact_id']}, scenario_id={d['scenario_id']})\n"
                 f"  Summary: {d['summary'][:200]}"
             )
-        return "\n".join(lines)
+        result = "\n".join(lines)
+        _cache_put(query, limit, result)
+        return result
     except Exception as e:
         return f"ERROR in FTS search: {e}"
     finally:

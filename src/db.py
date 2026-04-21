@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import os
 import re
 import sqlite3
@@ -90,20 +91,29 @@ def execute_raw(query: str) -> str:
         conn.close()
 
 
-def get_table_names() -> list[str]:
-    """Get all user table names from the database."""
+@functools.lru_cache(maxsize=1)
+def get_table_names() -> tuple[str, ...]:
+    """Get all user table names from the database.
+
+    Cached — the DB is opened read-only, schema cannot change during
+    process lifetime. Returns a tuple (immutable, hashable, safe to cache).
+    """
     conn = get_connection()
     try:
         cursor = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
         )
-        return [row[0] for row in cursor.fetchall()]
+        return tuple(row[0] for row in cursor.fetchall())
     finally:
         conn.close()
 
 
+@functools.lru_cache(maxsize=32)
 def get_table_schema(table_name: str) -> str:
-    """Get CREATE TABLE statement and sample rows for a table."""
+    """Get CREATE TABLE statement and sample rows for a table.
+
+    Cached — schema is static in a read-only DB.
+    """
     conn = get_connection()
     try:
         # Get DDL
