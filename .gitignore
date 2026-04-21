@@ -13,3 +13,4 @@ dist/
 docs/
 .pytest_cache/
 .claude/
+interview-prep.md

@@ -35,18 +35,31 @@ See [DESIGN.md](DESIGN.md) for detailed architecture decisions and tradeoffs.
 
 Rolling summarization matches full history accuracy while staying viable at any conversation length. Trim is the weakest — dropping context causes re-querying and lower recall.
 
-### Iterative Improvement
+> **Tested vs extrapolated.** Memory strategies were measured at **17 messages** (Experiment 3: summarize cheapest at 172K, full 226K, trim 199K) and **40 messages** (table above). Claims about behavior past 100 messages — i.e. that full-history eventually exceeds gpt-4o's 128K per-call context and summarize becomes the only viable strategy — are reasoning from the measured trajectory plus the context-window limit, not a measured result. Running the stress test at 100 messages is the first thing we'd add next.
 
-We ran experiments before and after prompt tuning to measure the impact of our changes:
+## Engineering Iterations
 
-| Metric | Before | After | Change |
-|--------|--------|-------|--------|
-| Overall accuracy | 49% | 64% | +15pp |
-| FTS usage rate | 83% | 100% | +17pp |
-| Avg tool calls | 3.0 | 2.8 | -0.2 |
-| Summarization errors (40 msgs) | 28 | 0 | Fixed |
+The shipped system went through seven iterations. Each one came from a specific measurement or a real failure, not guesswork.
 
-Key changes: FTS-first strategy in system prompt, retry on empty searches, tool boundary detection for summarization.
+**Iteration 1 — the baseline.** Scored 49% on the six assessment example queries. Two of them scored zero. The Aureum/SCIM query built an over-specific seven-term FTS search and gave up on the empty result. The competitor-defection query skipped FTS entirely, tried raw SQL on a qualitative question, and hallucinated column names that were not in the schema.
+
+**Iteration 2 — prompt tuning (49% → 64%).** Rewrote the system prompt to mandate FTS-first, short broad search terms, retry on empty results, always read `content_text` after a successful FTS, and distinguish qualitative questions (answered from artifacts) from structured ones (answered from SQL). Accuracy rose from 49% to 64%, FTS-first usage from 83% to 100%, and average tool calls from 3.0 to 2.8.
+
+**Iteration 3 — first-cut memory.** Multi-turn worked fine up to about 15 messages because the checkpointer replays the whole thread on every invoke. Past 15, the context window starts filling with tool results and cost climbs. First version of the summarizer: drop older messages, insert a summary system message, keep recent raw.
+
+**Iteration 4 — the orphaned tool message bug (28 errors → 0).** At the 40-message stress test, 28 of 40 requests on the summarize strategy returned HTTP 400 from OpenAI with *"messages with role 'tool' must be a response to a preceding message with 'tool_calls'."* The budget-driven summarizer walked the message list by token budget without respecting OpenAI's tool-call pairing invariant — it could sweep an assistant message into the "older" bucket while keeping its matching tool result in the "recent" bucket, orphaning the tool result. Fix: two safeguards in [src/memory.py](src/memory.py) — `_fix_tool_boundary` slides the split index forward past any orphan start, and `_remove_orphaned_tool_messages` drops tool messages whose IDs are not in the kept assistant set. After the fix: 0 errors, 87% back-reference accuracy at 40 messages.
+
+**Iteration 5 — rolling summaries, O(history) → O(new messages).** The fixed summarizer still re-summarized every older message on every call. At message 50 it was re-processing messages 1 through 42 from scratch. Added a per-thread summary cache keyed by `thread_id`: each new summary is produced by feeding (previous cached summary + only messages new since the last cache write) to `gpt-4o-mini`. At message 100 we summarize about eight new messages, not eighty.
+
+**Iteration 6 — caching static work.** The database is opened read-only, so the schema and the table list cannot change during process lifetime. Wrapped `get_table_names` and `get_table_schema` with `functools.lru_cache` — the first call hits SQLite, every subsequent call is free. Added a TTL-based FTS result cache (10 minutes, maximum 500 entries, hit and miss counters exposed for per-request logging) because the same customer or topic often gets searched multiple times within one conversation. See [src/db.py](src/db.py) and [src/tools.py](src/tools.py).
+
+**Iteration 7 — observability.** Added [src/timing.py](src/timing.py), a lightweight `TimingTracker` that records elapsed milliseconds per named stage (`agent`, `slack_post`, and so on) and emits a single structured log line per request. LangSmith already auto-traces every LLM call; `timing.py` covers the non-LLM stages (Slack API latency, memory middleware, database queries) that LangSmith cannot see. The two together close the full observability loop.
+
+**Live validation.** Sent 20 real messages through Slack in one DM thread covering four customers — deep dives, pronoun resolution, topic switching, back-references from 15+ messages earlier, and a final executive-summary question that required recalling every customer discussed. **14 of 14 scored checks passed.** Three non-scored misses were all in tool-strategy territory (Canada-wide pattern detection, MapleHarvest field mappings, at-risk customer count) — none in the memory or agent architecture.
+
+### One counter-intuitive finding
+
+Naive intuition says summarize should be cheapest (it compresses) and full should be most expensive (it sends everything). The 40-message stress test showed the opposite: full 414K tokens, summarize 475K, trim 554K. The reason is that *total tokens = per-call context × number of calls.* When trim or summarize drops context, the agent re-runs tools to recover lost facts, and those extra LLM roundtrips dominate the per-call savings. Trim drops the most and re-queries the most, which is why it is the worst. Summarize preserves key facts in compressed form so it re-queries less than trim but still more than full. This ordering flipped between 17 messages (where summarize won at 172K) and 40 messages — and by extrapolating the curves, it would flip again past about 100 messages when full starts exceeding gpt-4o's context window.
 
 Full experiment data: [`eval/EXPERIMENTS.md`](eval/EXPERIMENTS.md) | Raw results: [`eval/results.json`](eval/results.json)
 
